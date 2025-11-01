@@ -1,0 +1,64 @@
+# ==========================
+# Python build and cache
+# ==========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ==========================
+# Virtual environments
+# ==========================
+.venv/
+venv/
+env/
+ENV/
+
+# ==========================
+# Secrets and config files
+# ==========================
+.env
+.env.*
+*.key
+*.pem
+*.crt
+
+# ==========================
+# IDE / Editor settings
+# ==========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ==========================
+# Logs, OS junk, and cache
+# ==========================
+*.log
+.DS_Store
+Thumbs.db
+
+# ==========================
+# Project-specific ignores
+# ==========================
+
+# Ignore raw data or secrets that shouldn’t be public
+# (keep your words.json tracked, so only ignore backups or temp files)
+data/*.bak
+data/*.tmp
+data/*.old
+data/~*
+
+# Bytecode or test outputs you might add later
+/tests/__pycache__/
+*.pytest_cache/
+.coverage
+htmlcov/
+
+# ==========================
+# Optional: Python packages
+# ==========================
+*.egg-info/
+build/
+dist/

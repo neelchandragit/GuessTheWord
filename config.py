@@ -1,8 +1,10 @@
 import os
 import discord
+from dotenv import load_dotenv
+load_dotenv()
 
 # --- Configure these via environment or hardcode if you prefer ---
-DISCORD_TOKEN = "MTQwNjEyNDI3NDAxNTY2NjIzNw.GhI_sy.3f2OYRmt1Ak1ySuArxnBa8svzdvy8Mn61PLePI"
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 GUILD_ID = int(os.getenv("GUILD_ID", "1406114268696281121"))
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))  # optional
 
