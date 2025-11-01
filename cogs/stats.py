@@ -52,7 +52,7 @@ class StatsCog(commands.Cog):
     @app_commands.command(name="stats", description="Show memorize progress: repetitions, completed hints, and record.")
     @app_commands.describe(user="Optional user to query (defaults to you)")
     async def stats(self, interaction: discord.Interaction, user: Optional[discord.User] = None):
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer(ephemeral=False)
         target = user or interaction.user
         data = await get_user_stats(target.id)
 
