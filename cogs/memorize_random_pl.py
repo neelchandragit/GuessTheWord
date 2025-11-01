@@ -31,10 +31,14 @@ class MemorizeRandomPl(commands.Cog):
             return
         active_games[channel.id] = True
 
-        await channel.send(f"🎲 Starting randomized PL memorization for **{length}**-letter words. Type `endmemorize` to stop.")
+        await channel.send(
+            f"🎲 Starting randomized PL memorization for **{length}**-letter words. "
+            f"Type `endmemorize` to stop."
+        )
 
         try:
             while active_games.get(channel.id):
+                # Pick a random word and a random non-space position
                 entry = random.choice(entries_of_length)
                 pl_word = entry["polish"]
                 positions = [i for i, c in enumerate(pl_word) if c != ' ']
@@ -43,33 +47,46 @@ class MemorizeRandomPl(commands.Cog):
                 pos = random.choice(positions)
                 letter = pl_word[pos].lower()
 
+                # Build a hint with the true letter at pos
                 raw_hint = '_' * pos + letter + '_' * (len(pl_word) - pos - 1)
 
+                # All Polish matches for this hint
                 pl_matches = get_possible_matches(raw_hint, [w["polish"] for w in entries_of_length])
                 if not pl_matches:
                     continue
 
-                # Build map: any accepted answer -> set of "polish(english)"
+                # Build map: any accepted answer -> set of "Polish(English)" tags for THIS hint
                 answer_to_pl_eng = {}
                 all_needed = set()
                 for w in entries_of_length:
                     if w["polish"] not in pl_matches:
                         continue
-                    tag = f"{w['polish']}({w.get('english','')})"
+                    tag = f"{w['polish']}({w.get('english', '')})"
                     all_needed.add(tag)
+
+                    # Accept the polish itself + all accepted answers (translations/shortcut/multiwords)
                     for key in {w["polish"], *w.get("answers", set())}:
                         k = key.strip().lower()
                         if not k:
                             continue
                         answer_to_pl_eng.setdefault(k, set()).add(tag)
 
-                guessed_set = set()
+                # ✅ Progress by unique Polish base word only
+                def base_of(tag: str) -> str:
+                    # "Bar(Bar)" -> "Bar"
+                    return tag.split('(', 1)[0]
+
+                base_needed = {base_of(t) for t in all_needed}
+                base_guessed = set()
+
+                guessed_tags = set()
                 timeout = 10 + 3 * len(pl_matches)
 
                 await channel.send(
                     f"🧩 **Random PL hint**\n"
                     f"Hint:\n```{display_hint(raw_hint)}```\n"
-                    f"Guess all {len(pl_matches)} matching word(s) in **{timeout} seconds**. Type `endmemorize` to stop."
+                    f"Guess all {len(base_needed)} unique Polish word(s) in **{timeout} seconds**. "
+                    f"Type `endmemorize` to stop."
                 )
 
                 start = asyncio.get_event_loop().time()
@@ -92,20 +109,34 @@ class MemorizeRandomPl(commands.Cog):
                     if content not in answer_to_pl_eng:
                         continue
 
-                    new_hits = [t for t in answer_to_pl_eng[content] if t not in guessed_set]
+                    # All tags matched by this guess; show them all, but credit only one base
+                    new_hits = [t for t in answer_to_pl_eng[content] if t not in guessed_tags]
                     if not new_hits:
                         continue
 
-                    guessed_set.update(new_hits)
-                    await channel.send(f"✅ `{', '.join(sorted(new_hits))}` guessed! Progress: {len(guessed_set)}/{len(all_needed)}")
+                    guessed_tags.update(new_hits)
+                    await channel.send(f"✅ `{content}` guessed! ({', '.join(sorted(new_hits))})")
 
-                    if guessed_set >= all_needed:
+                    # Credit at most ONE new base per guess
+                    credited = False
+                    for t in new_hits:
+                        b = base_of(t)
+                        if b not in base_guessed:
+                            base_guessed.add(b)
+                            credited = True
+                            break
+
+                    # Progress = #unique Polish bases guessed / total unique bases
+                    await channel.send(f"Progress: {len(base_guessed)}/{len(base_needed)}")
+
+                    if base_guessed >= base_needed:
                         await channel.send("🎉 All words for this hint guessed! Next random hint…")
                         break
 
-                if guessed_set < all_needed and active_games.get(channel.id):
-                    missed = sorted(all_needed - guessed_set)
-                    await channel.send("❌ Time's up or miss detected! Missed:\n" + ", ".join(missed))
+                # If we didn’t complete all base words for the hint → end session
+                if base_guessed < base_needed and active_games.get(channel.id):
+                    missed_bases = sorted(base_needed - base_guessed)
+                    await channel.send("❌ Time's up or miss detected! Missed base words:\n" + ", ".join(missed_bases))
                     await channel.send("🏁 Session over.")
                     active_games.pop(channel.id, None)
                     return
