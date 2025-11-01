@@ -54,7 +54,7 @@ class StatsCog(commands.Cog):
     async def stats(self, interaction: discord.Interaction, user: Optional[discord.User] = None):
         await interaction.response.defer(ephemeral=False)
         target = user or interaction.user
-        data = await get_user_stats(target.id)
+        data = await get_stats(target.id)
 
         if not data:
             await interaction.followup.send(f"📊 No stats yet for {target.mention}.")
