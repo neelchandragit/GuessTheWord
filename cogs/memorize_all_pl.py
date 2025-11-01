@@ -19,7 +19,7 @@ class MemorizeAllPl(commands.Cog):
 
     @app_commands.command(
         name="memorize_pl",
-        description="Cycle through all Polish hints of a given length, one at a time (A→Z per position)."
+        description="Cycle through all Polish hints of a given length, one at a time (A→Ż per position)."
     )
     @app_commands.describe(
         length="Length of the Polish words to memorize",
@@ -29,17 +29,19 @@ class MemorizeAllPl(commands.Cog):
         await interaction.response.defer()
         channel = interaction.channel
 
+        # Filter to words of the requested length
         entries = [e for e in word_lists_polish if len(e["polish"]) == length]
         if not entries:
             await channel.send(f"❌ No Polish words of length {length} found.")
             return
 
+        # Only one session per channel
         if active_games.get(channel.id):
             await channel.send("⚠️ A session is already active in this channel.")
             return
         active_games[channel.id] = True
 
-        # Determine starting position / letter based on start_hint
+        # --- Determine starting position and letter index from start_hint (if any)
         start_pos, start_letter_idx = 0, 0
         if start_hint and len(start_hint) == length:
             for i, ch in enumerate(start_hint):
@@ -48,13 +50,20 @@ class MemorizeAllPl(commands.Cog):
                     if ch.lower() in POLISH_ALPHABET:
                         start_letter_idx = POLISH_ALPHABET.index(ch.lower())
                     break
-        author_id = interaction.user.id 
-        # Reset any existing contiguous run for this user/length
+
+        author_id = interaction.user.id
+
+        # Always close any previous contiguous run for this user/length/lang bucket
         await end_run(author_id, "pl", length)
 
-        # Only start tracking a new record if no start_hint was provided
-        if not start_hint:
-            await start_run_if_at_beginning(author_id, "pl", length, start_pos, start_letter_idx)
+        # Record-eligible ONLY if user did not pass a start hint and we truly begin at index 0, letter 0
+        record_eligible = (not start_hint) and (start_pos == 0) and (start_letter_idx == 0)
+
+        # Start a new run; stats_store will remember if this run is allowed to affect 'record'
+        # NOTE: start_run_if_at_beginning signature per my suggested stats_store:
+        #   start_run_if_at_beginning(user_id, lang, start_index:int, record_eligible:bool)
+        # If your implementation tracks per-length, keep your length dimension in the bucket and call as below.
+        await start_run_if_at_beginning(author_id, "pl", length, start_pos, start_letter_idx, record_eligible)
 
         try:
             pos = start_pos
@@ -64,14 +73,15 @@ class MemorizeAllPl(commands.Cog):
                     letter = POLISH_ALPHABET[li]
                     raw_hint = '_' * pos + letter + '_' * (length - pos - 1)
 
-                    # Matches for this hint
+                    # Compute matches for this letter-at-position hint
                     pl_matches = get_possible_matches(raw_hint, [w["polish"] for w in entries])
+                    # dedupe, preserve order
                     pl_matches = list(dict.fromkeys(pl_matches))
                     if not pl_matches:
                         li += 1
                         continue
 
-                    # Build answer map and tag set
+                    # Build accepted answers map -> tags
                     answer_to_pl_eng = {}
                     all_needed = set()
                     for w in entries:
@@ -79,20 +89,20 @@ class MemorizeAllPl(commands.Cog):
                             continue
                         tag = f"{w['polish']}({w.get('english','')})"
                         all_needed.add(tag)
-                        for key in {w["polish"], *w.get("answers", set())}:
-                            k = key.strip().lower()
-                            if not k:
-                                continue
+                        # Accept base and any configured alt-answers
+                        all_keys = {w["polish"], *w.get("answers", set())}
+                        for k in {k.strip().lower() for k in all_keys if k and k.strip()}:
                             answer_to_pl_eng.setdefault(k, set()).add(tag)
 
-                    # ✅ Progress by unique Polish base (not per meaning)
+                    # Count progress by base Polish word (not per meaning)
                     def base_of(tag: str) -> str:
                         return tag.split('(', 1)[0]
 
                     base_needed = {base_of(t) for t in all_needed}
                     base_guessed = set()
-
                     guessed_tags = set()
+
+                    # Timeout scales with number of matches
                     timeout = 10 + 3 * len(pl_matches)
                     start_time = asyncio.get_event_loop().time()
 
@@ -129,7 +139,7 @@ class MemorizeAllPl(commands.Cog):
                         guessed_tags.update(new_hits)
                         await channel.send(f"✅ `{content}` guessed! ({', '.join(sorted(new_hits))})")
 
-                        # Credit at most one new base per user guess
+                        # Credit at most one new base per user message
                         for t in new_hits:
                             b = base_of(t)
                             if b not in base_guessed:
@@ -140,40 +150,48 @@ class MemorizeAllPl(commands.Cog):
 
                         if base_guessed >= base_needed:
                             await channel.send("🎉 All words for this hint guessed! Moving on…")
+
+                            # log stats
                             iso = datetime.now(timezone.utc).isoformat()
                             await bump_repetition(interaction.user.id, "pl", length, pos, li, iso)
                             await mark_completed(interaction.user.id, "pl", length, pos, li, iso)
+
+                            # advance the contiguous run (stats_store decides whether to touch 'record' based on run flag)
                             alphabet_len = len(POLISH_ALPHABET)
                             word_len = length
-                            await advance_run_on_success(interaction.user.id, "pl", length, pos, li, iso, alphabet_len, word_len)
-
+                            await advance_run_on_success(
+                                interaction.user.id, "pl", length, pos, li, iso, alphabet_len, word_len
+                            )
                             break
 
+                    # If we didn’t finish this hint, end the run and retry same letter
                     if base_guessed < base_needed and active_games.get(channel.id):
-                        # Show missed bases, then retry same hint
                         missed = sorted(base_needed - base_guessed)
                         msg = await channel.send(
                             "❌ Time's up or some words were missed!\n"
                             "Missed base words:\n" + ", ".join(missed)
                         )
+
+                        # End current run so partial progress doesn’t inappropriately affect record
                         await end_run(interaction.user.id, "pl", length)
 
                         await asyncio.sleep(10)
                         await msg.delete()
                         await channel.send(f"🔁 Let's retry the same hint:\n```{display_hint(raw_hint)}```")
-                        # continue without advancing letter index
+                        # retry same letter (no li += 1)
                         continue
 
-                    # Completed — go to next letter
+                    # Completed this letter — move to next letter
                     li += 1
 
-                # Next position
+                # Move to next position and reset letter index
                 start_letter_idx = 0
                 pos += 1
 
             await channel.send("✅ Finished all hints or session ended.")
         finally:
             active_games.pop(channel.id, None)
+
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MemorizeAllPl(bot), guild=guild)
