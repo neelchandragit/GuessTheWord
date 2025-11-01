@@ -8,6 +8,10 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
 GUILD_ID = int(os.getenv("GUILD_ID", "1406114268696281121"))
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))  # optional
 
+# Where to store user progress & repetitions
+STATS_JSON = os.getenv("STATS_JSON", os.path.join("data", "stats.json"))
+
+
 # Path to your data/words.json (you can switch it via env if needed)
 WORDS_JSON = os.getenv("WORDS_JSON", os.path.join("data", "words.json"))
 
