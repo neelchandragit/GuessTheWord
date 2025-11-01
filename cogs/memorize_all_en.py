@@ -35,8 +35,14 @@ async def run_memorize_game(
                 break
 
     # start contiguous run only if at (0,0)
+    # Reset any existing contiguous run for this user/length
+    await end_run(author_id, "en", length)
+
+    # Only start tracking a new record if no start_hint was provided
     if not start_hint:
         await start_run_if_at_beginning(author_id, "en", length, start_pos, start_letter_idx)
+
+    
 
 
     try:

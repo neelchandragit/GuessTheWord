@@ -49,10 +49,12 @@ class MemorizeAllPl(commands.Cog):
                         start_letter_idx = POLISH_ALPHABET.index(ch.lower())
                     break
         author_id = interaction.user.id 
-        if not start_hint:  # only track record when user didn't pass a start hint
+        # Reset any existing contiguous run for this user/length
+        await end_run(author_id, "pl", length)
+
+        # Only start tracking a new record if no start_hint was provided
+        if not start_hint:
             await start_run_if_at_beginning(author_id, "pl", length, start_pos, start_letter_idx)
-
-
 
         try:
             pos = start_pos
