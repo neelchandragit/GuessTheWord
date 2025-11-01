@@ -1,149 +1,118 @@
+import random
 import asyncio
 import discord
 from discord import app_commands
 from discord.ext import commands
-from typing import Dict, List, Set
-from datetime import datetime, timezone
 
-from config import active_games, guild
-from utils.word_loader import word_lists, EN_ALPHABET
-from utils.hint_utils import display_hint, get_possible_matches
-from utils.stats_store import (
-    bump_repetition, mark_completed,
-    start_run_if_at_beginning, advance_run_on_success, end_run
-)
+from utils.hint_utils import get_possible_matches, display_hint
+from utils.word_loader import word_lists
+from config import guild, active_games
 
-async def run_memorize_game(
-    bot: commands.Bot,
-    channel: discord.abc.Messageable,
-    entries_of_length: List[dict],
-    length: int,
-    start_hint: str | None,
-    alphabet: List[str],
-    author_id: int,              # 👈 pass the user id in
-):
-    active_games[channel.id] = True
-
-    # figure out where to start
-    start_pos, start_letter_idx = 0, 0
-    if start_hint and len(start_hint) == length:
-        for i, ch in enumerate(start_hint):
-            if ch not in {'_', ' '}:
-                start_pos = i
-                if ch.lower() in alphabet:
-                    start_letter_idx = alphabet.index(ch.lower())
-                break
-
-    # start contiguous run only if at (0,0)
-    await start_run_if_at_beginning(author_id, "en", length, start_pos, start_letter_idx)
-
-    try:
-        pos = start_pos
-        while pos < length and active_games.get(channel.id):
-            for li in range(start_letter_idx, len(alphabet)):
-                if not active_games.get(channel.id):
-                    break
-
-                letter = alphabet[li]
-                raw_hint = '_' * pos + letter + '_' * (length - pos - 1)
-                possible_matches = get_possible_matches(raw_hint, [w["english"] for w in entries_of_length])
-                if not possible_matches:
-                    continue
-
-                # map any accepted answer -> english word
-                answer_to_eng: Dict[str, str] = {}
-                for w in entries_of_length:
-                    if w["english"] in possible_matches:
-                        for a in w["answers"]:
-                            answer_to_eng[a.lower()] = w["english"]
-
-                while active_games.get(channel.id):
-                    guessed: Set[str] = set()
-                    timeout = 10 + 3 * len(possible_matches)
-                    start_time = asyncio.get_event_loop().time()
-
-                    await channel.send(
-                        f"🧠 Memorize — position {pos+1}/{length}, letter `{letter.upper()}`\n"
-                        f"Hint:\n```{display_hint(raw_hint)}```\n"
-                        f"Guess all {len(possible_matches)} word(s) in **{timeout} seconds**. Type `endmemorize` to stop."
-                    )
-
-                    while (asyncio.get_event_loop().time() - start_time) < timeout:
-                        try:
-                            msg = await bot.wait_for(
-                                "message",
-                                timeout=timeout - (asyncio.get_event_loop().time() - start_time),
-                                check=lambda m: m.channel.id == channel.id and not m.author.bot
-                            )
-                        except asyncio.TimeoutError:
-                            break
-
-                        content = msg.content.strip().lower()
-                        if content == "endmemorize":
-                            await channel.send("⏹️ Memorization session ended early.")
-                            active_games.pop(channel.id, None)
-                            return
-
-                        if content in answer_to_eng:
-                            eng = answer_to_eng[content]
-                            if eng not in guessed:
-                                guessed.add(eng)
-                                await channel.send(
-                                    f"✅ `{eng}` guessed! Progress: {len(guessed)}/{len(possible_matches)}"
-                                )
-                                if len(guessed) == len(possible_matches):
-                                    # ✅ Completed this hint
-                                    await channel.send("🎉 All words for this hint guessed! Moving on…")
-                                    iso = datetime.now(timezone.utc).isoformat()
-                                    await bump_repetition(author_id, "en", length, pos, li, iso)
-                                    await mark_completed(author_id, "en", length, pos, li, iso)
-                                    await advance_run_on_success(author_id, "en", length, pos, li, iso, len(alphabet), length)
-                                    break
-
-                    if len(guessed) == len(possible_matches):
-                        break
-                    else:
-                        # ❌ Failed this hint → end contiguous run, retry same hint
-                        msg = await channel.send(
-                            "❌ Time's up or some words were missed!\n"
-                            "Here are all correct words:\n" +
-                            ", ".join(f"`{w}`" for w in possible_matches)
-                        )
-                        await end_run(author_id, "en", length)
-                        await asyncio.sleep(10)
-                        await msg.delete()
-                        await channel.send(f"🔁 Let's retry the same hint:\n```{display_hint(raw_hint)}```")
-
-            start_letter_idx = 0
-            pos += 1
-
-        await channel.send("✅ Finished all hints or session ended.")
-    finally:
-        active_games.pop(channel.id, None)
-
-class MemorizeAllEnCog(commands.Cog):
-    def __init__(self, bot: commands.Bot) -> None:
+class MemorizeRandomEn(commands.Cog):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     @app_commands.command(
-        name="memorize_all",
-        description="Cycle through all English hints of a given length"
+        name="memorize_random_en",
+        description="Random English hints (repeats allowed). Continues until a hint is failed."
     )
-    @app_commands.describe(length="Length of the words", start_hint="Optional starting hint (e.g., __m______)")
-    async def memorize_all(self, interaction: discord.Interaction, length: int, start_hint: str | None = None):
+    @app_commands.describe(length="Length of English words to use")
+    async def memorize_random_en(self, interaction: discord.Interaction, length: int):
         await interaction.response.defer()
         channel = interaction.channel
-        author_id = interaction.user.id  # 👈 capture once
 
         all_entries = sum([word_lists[d] for d in ["easy", "medium", "hard"]], [])
-        entries_of_len = [w for w in all_entries if len(w["english"]) == length]
-        if not entries_of_len:
+        entries_of_length = [w for w in all_entries if len(w["english"]) == length]
+        if not entries_of_length:
             await channel.send(f"❌ No English words of length {length} found.")
             return
 
-        await run_memorize_game(
-            self.bot, channel, entries_of_len, length, start_hint, EN_ALPHABET, author_id
-        )
+        # Guard against concurrent sessions in the same channel
+        if active_games.get(channel.id):
+            await channel.send("⚠️ A session is already active in this channel.")
+            return
+        active_games[channel.id] = True
+
+        await channel.send(f"🎲 Starting randomized EN memorization for **{length}**-letter words. Type `endmemorize` to stop.")
+
+        try:
+            while active_games.get(channel.id):
+                # pick random word and random non-space position
+                entry = random.choice(entries_of_length)
+                eng_word = entry["english"]
+                positions = [i for i, c in enumerate(eng_word) if c != ' ']
+                if not positions:
+                    continue
+                pos = random.choice(positions)
+                letter = eng_word[pos].lower()
+
+                raw_hint = '_' * pos + letter + '_' * (len(eng_word) - pos - 1)
+
+                possible_matches = get_possible_matches(raw_hint, [w["english"] for w in entries_of_length])
+                if not possible_matches:
+                    # rarely none match; just pick another
+                    continue
+
+                # Build answer map
+                answer_to_eng = {}
+                for w in entries_of_length:
+                    if w["english"] in possible_matches:
+                        for ans in w["answers"]:
+                            answer_to_eng[ans.lower()] = w["english"]
+
+                all_needed = set(possible_matches)
+                guessed_set = set()
+                timeout = 10 + 3 * len(possible_matches)
+
+                await channel.send(
+                    f"🧩 **Random EN hint**\n"
+                    f"Hint:\n```{display_hint(raw_hint)}```\n"
+                    f"Guess all {len(possible_matches)} matching word(s) in **{timeout} seconds**. Type `endmemorize` to stop."
+                )
+
+                start = asyncio.get_event_loop().time()
+                while (asyncio.get_event_loop().time() - start) < timeout and active_games.get(channel.id):
+                    try:
+                        msg = await self.bot.wait_for(
+                            "message",
+                            timeout=timeout - (asyncio.get_event_loop().time() - start),
+                            check=lambda m: m.channel.id == channel.id and not m.author.bot
+                        )
+                    except asyncio.TimeoutError:
+                        break
+
+                    content = msg.content.strip().lower()
+                    if content == "endmemorize":
+                        await channel.send("⏹️ Session ended early.")
+                        active_games.pop(channel.id, None)
+                        return
+
+                    if content not in answer_to_eng:
+                        continue
+
+                    hit = answer_to_eng[content]
+                    if hit not in guessed_set:
+                        guessed_set.add(hit)
+                        await channel.send(f"✅ `{hit}` guessed! Progress: {len(guessed_set)}/{len(all_needed)}")
+
+                    if guessed_set >= all_needed:
+                        await channel.send("🎉 All words for this hint guessed! Next random hint…")
+                        break
+
+                # If we didn’t get them all, end the session
+                if guessed_set < all_needed and active_games.get(channel.id):
+                    missed = sorted(all_needed - guessed_set)
+                    await channel.send("❌ Time's up or miss detected! Missed:\n" + ", ".join(f"`{m}`" for m in missed))
+                    await channel.send("🏁 Session over.")
+                    active_games.pop(channel.id, None)
+                    return
+
+            # If loop exits because active_games was cleared
+            if not active_games.get(channel.id):
+                await channel.send("⏹️ Session ended.")
+
+        finally:
+            active_games.pop(channel.id, None)
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(MemorizeAllEnCog(bot), guild=guild)
+    await bot.add_cog(MemorizeRandomEn(bot), guild=guild)

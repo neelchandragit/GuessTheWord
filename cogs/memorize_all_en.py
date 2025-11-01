@@ -1,23 +1,30 @@
-from __future__ import annotations
 import asyncio
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 from typing import Dict, List, Set
+from datetime import datetime, timezone
 
 from config import active_games, guild
 from utils.word_loader import word_lists, EN_ALPHABET
 from utils.hint_utils import display_hint, get_possible_matches
-from datetime import datetime, timezone
 from utils.stats_store import (
     bump_repetition, mark_completed,
     start_run_if_at_beginning, advance_run_on_success, end_run
 )
 
-
-async def run_memorize_game(bot: commands.Bot, channel, entries_of_length, length: int, start_hint: str | None, alphabet: List[str]):
+async def run_memorize_game(
+    bot: commands.Bot,
+    channel: discord.abc.Messageable,
+    entries_of_length: List[dict],
+    length: int,
+    start_hint: str | None,
+    alphabet: List[str],
+    author_id: int,              # 👈 pass the user id in
+):
     active_games[channel.id] = True
 
+    # figure out where to start
     start_pos, start_letter_idx = 0, 0
     if start_hint and len(start_hint) == length:
         for i, ch in enumerate(start_hint):
@@ -26,9 +33,9 @@ async def run_memorize_game(bot: commands.Bot, channel, entries_of_length, lengt
                 if ch.lower() in alphabet:
                     start_letter_idx = alphabet.index(ch.lower())
                 break
-    # If starting exactly at (0,0), begin a contiguous-run tracker
-    await start_run_if_at_beginning(interaction.user.id, "en", length, start_pos, start_letter_idx)
 
+    # start contiguous run only if at (0,0)
+    await start_run_if_at_beginning(author_id, "en", length, start_pos, start_letter_idx)
 
     try:
         pos = start_pos
@@ -85,28 +92,24 @@ async def run_memorize_game(bot: commands.Bot, channel, entries_of_length, lengt
                                     f"✅ `{eng}` guessed! Progress: {len(guessed)}/{len(possible_matches)}"
                                 )
                                 if len(guessed) == len(possible_matches):
+                                    # ✅ Completed this hint
                                     await channel.send("🎉 All words for this hint guessed! Moving on…")
                                     iso = datetime.now(timezone.utc).isoformat()
-                                    # record reps + completion of this exact hint
-                                    await bump_repetition(interaction.user.id, "en", length, pos, li, iso)
-                                    await mark_completed(interaction.user.id, "en", length, pos, li, iso)
-                                    # try to advance the contiguous run's record if this matches expected
-                                    alphabet_len = 26
-                                    word_len = length
-                                    await advance_run_on_success(interaction.user.id, "en", length, pos, li, iso, alphabet_len, word_len)
-
+                                    await bump_repetition(author_id, "en", length, pos, li, iso)
+                                    await mark_completed(author_id, "en", length, pos, li, iso)
+                                    await advance_run_on_success(author_id, "en", length, pos, li, iso, len(alphabet), length)
                                     break
 
                     if len(guessed) == len(possible_matches):
                         break
                     else:
+                        # ❌ Failed this hint → end contiguous run, retry same hint
                         msg = await channel.send(
                             "❌ Time's up or some words were missed!\n"
                             "Here are all correct words:\n" +
                             ", ".join(f"`{w}`" for w in possible_matches)
                         )
-                        await end_run(interaction.user.id, "en", length)
-
+                        await end_run(author_id, "en", length)
                         await asyncio.sleep(10)
                         await msg.delete()
                         await channel.send(f"🔁 Let's retry the same hint:\n```{display_hint(raw_hint)}```")
@@ -130,6 +133,7 @@ class MemorizeAllEnCog(commands.Cog):
     async def memorize_all(self, interaction: discord.Interaction, length: int, start_hint: str | None = None):
         await interaction.response.defer()
         channel = interaction.channel
+        author_id = interaction.user.id  # 👈 capture once
 
         all_entries = sum([word_lists[d] for d in ["easy", "medium", "hard"]], [])
         entries_of_len = [w for w in all_entries if len(w["english"]) == length]
@@ -137,8 +141,9 @@ class MemorizeAllEnCog(commands.Cog):
             await channel.send(f"❌ No English words of length {length} found.")
             return
 
-        await run_memorize_game(self.bot, channel, entries_of_len, length, start_hint, EN_ALPHABET)
+        await run_memorize_game(
+            self.bot, channel, entries_of_len, length, start_hint, EN_ALPHABET, author_id
+        )
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(MemorizeAllEnCog(bot), guild=guild)
-
