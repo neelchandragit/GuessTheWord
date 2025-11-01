@@ -8,6 +8,12 @@ from typing import Dict, List, Set
 from config import active_games, guild
 from utils.word_loader import word_lists, EN_ALPHABET
 from utils.hint_utils import display_hint, get_possible_matches
+from datetime import datetime, timezone
+from utils.stats_store import (
+    bump_repetition, mark_completed,
+    start_run_if_at_beginning, advance_run_on_success, end_run
+)
+
 
 async def run_memorize_game(bot: commands.Bot, channel, entries_of_length, length: int, start_hint: str | None, alphabet: List[str]):
     active_games[channel.id] = True
@@ -20,6 +26,9 @@ async def run_memorize_game(bot: commands.Bot, channel, entries_of_length, lengt
                 if ch.lower() in alphabet:
                     start_letter_idx = alphabet.index(ch.lower())
                 break
+    # If starting exactly at (0,0), begin a contiguous-run tracker
+    await start_run_if_at_beginning(interaction.user.id, "en", length, start_pos, start_letter_idx)
+
 
     try:
         pos = start_pos
@@ -77,6 +86,15 @@ async def run_memorize_game(bot: commands.Bot, channel, entries_of_length, lengt
                                 )
                                 if len(guessed) == len(possible_matches):
                                     await channel.send("🎉 All words for this hint guessed! Moving on…")
+                                    iso = datetime.now(timezone.utc).isoformat()
+                                    # record reps + completion of this exact hint
+                                    await bump_repetition(interaction.user.id, "en", length, pos, li, iso)
+                                    await mark_completed(interaction.user.id, "en", length, pos, li, iso)
+                                    # try to advance the contiguous run's record if this matches expected
+                                    alphabet_len = 26
+                                    word_len = length
+                                    await advance_run_on_success(interaction.user.id, "en", length, pos, li, iso, alphabet_len, word_len)
+
                                     break
 
                     if len(guessed) == len(possible_matches):
@@ -87,6 +105,8 @@ async def run_memorize_game(bot: commands.Bot, channel, entries_of_length, lengt
                             "Here are all correct words:\n" +
                             ", ".join(f"`{w}`" for w in possible_matches)
                         )
+                        await end_run(interaction.user.id, "en", length)
+
                         await asyncio.sleep(10)
                         await msg.delete()
                         await channel.send(f"🔁 Let's retry the same hint:\n```{display_hint(raw_hint)}```")

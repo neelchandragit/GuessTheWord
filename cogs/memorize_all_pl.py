@@ -6,6 +6,12 @@ from discord.ext import commands
 from utils.hint_utils import get_possible_matches, display_hint
 from utils.word_loader import word_lists_polish, POLISH_ALPHABET
 from config import guild, active_games
+from datetime import datetime, timezone
+from utils.stats_store import (
+    bump_repetition, mark_completed,
+    start_run_if_at_beginning, advance_run_on_success, end_run
+)
+
 
 class MemorizeAllPl(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -42,6 +48,8 @@ class MemorizeAllPl(commands.Cog):
                     if ch.lower() in POLISH_ALPHABET:
                         start_letter_idx = POLISH_ALPHABET.index(ch.lower())
                     break
+
+        await start_run_if_at_beginning(interaction.user.id, "pl", length, start_pos, start_letter_idx)
 
         try:
             pos = start_pos
@@ -127,6 +135,13 @@ class MemorizeAllPl(commands.Cog):
 
                         if base_guessed >= base_needed:
                             await channel.send("🎉 All words for this hint guessed! Moving on…")
+                            iso = datetime.now(timezone.utc).isoformat()
+                            await bump_repetition(interaction.user.id, "pl", length, pos, li, iso)
+                            await mark_completed(interaction.user.id, "pl", length, pos, li, iso)
+                            alphabet_len = len(POLISH_ALPHABET)
+                            word_len = length
+                            await advance_run_on_success(interaction.user.id, "pl", length, pos, li, iso, alphabet_len, word_len)
+
                             break
 
                     if base_guessed < base_needed and active_games.get(channel.id):
@@ -136,6 +151,8 @@ class MemorizeAllPl(commands.Cog):
                             "❌ Time's up or some words were missed!\n"
                             "Missed base words:\n" + ", ".join(missed)
                         )
+                        await end_run(interaction.user.id, "pl", length)
+
                         await asyncio.sleep(10)
                         await msg.delete()
                         await channel.send(f"🔁 Let's retry the same hint:\n```{display_hint(raw_hint)}```")
