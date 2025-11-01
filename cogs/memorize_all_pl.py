@@ -48,7 +48,7 @@ class MemorizeAllPl(commands.Cog):
                     if ch.lower() in POLISH_ALPHABET:
                         start_letter_idx = POLISH_ALPHABET.index(ch.lower())
                     break
-
+        author_id = interaction.user.id 
         if not start_hint:  # only track record when user didn't pass a start hint
             await start_run_if_at_beginning(author_id, "pl", length, start_pos, start_letter_idx)
 
