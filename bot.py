@@ -13,6 +13,7 @@ class MyBot(commands.Bot):
         await self.load_extension("cogs.memorize_all_pl")
         await self.load_extension("cogs.memorize_random_en")
         await self.load_extension("cogs.memorize_random_pl")
+        await self.load_extension("cogs.stats")
         # Fast guild-only sync
         await self.tree.sync(guild=guild)
         print(f"✅ Slash commands synced to guild {GUILD_ID}")
