@@ -35,7 +35,9 @@ async def run_memorize_game(
                 break
 
     # start contiguous run only if at (0,0)
-    await start_run_if_at_beginning(author_id, "en", length, start_pos, start_letter_idx)
+    if not start_hint:
+        await start_run_if_at_beginning(author_id, "en", length, start_pos, start_letter_idx)
+
 
     try:
         pos = start_pos
