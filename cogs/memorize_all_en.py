@@ -25,6 +25,7 @@ async def run_memorize_game(
     active_games[channel.id] = True
 
     # figure out where to start
+        # figure out where to start
     start_pos, start_letter_idx = 0, 0
     if start_hint and len(start_hint) == length:
         for i, ch in enumerate(start_hint):
@@ -34,13 +35,15 @@ async def run_memorize_game(
                     start_letter_idx = alphabet.index(ch.lower())
                 break
 
-    # start contiguous run only if at (0,0)
     # Reset any existing contiguous run for this user/length
     await end_run(author_id, "en", length)
 
-    # Only start tracking a new record if no start_hint was provided
-    if not start_hint:
-        await start_run_if_at_beginning(author_id, "en", length, start_pos, start_letter_idx)
+    # Record-eligible ONLY if no start_hint and we're truly at (pos=0, letter=0)
+    record_eligible = (not start_hint)
+
+    # NEW signature: includes record_eligible
+    await start_run_if_at_beginning(author_id, "en", length, start_pos, start_letter_idx, record_eligible)
+
 
     
 
