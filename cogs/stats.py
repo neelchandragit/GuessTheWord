@@ -22,7 +22,6 @@ def human_record(entry: dict, lang: str) -> str:
     last_li  = rec.get("last_li")
     if last_pos is not None and last_li is not None:
         L = en_letter(last_li) if lang == "en" else pl_letter(last_li)
-        # last_pos is 0-based; show 1-based for humans
         return f"through pos {last_pos+1}, letter '{L}' (streak {val}; updated {when})"
     return f"streak {val} (updated {when})"
 
