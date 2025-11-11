@@ -1,6 +1,6 @@
 # 🎮 Guess The Word
 
-**Guess The Word** is an interactive Discord bot built in **Python** that gamifies vocabulary learning and language practice.  
+**Guess The Word** is an interactive Discord bot built in **Python** that gamifies vocabulary learning and language practice for a popular game called Guess The Build.  
 Players receive hints and must guess the correct word — earning streaks, tracking stats, and unlocking harder challenges as they go.
 
 ---
@@ -14,9 +14,7 @@ Players receive hints and must guess the correct word — earning streaks, track
 - **📊 Smart Stat Tracking:**  
   Every player’s performance is stored in lightweight JSON data files — tracking:
   - Words completed  
-  - Longest streak  
-  - Average accuracy  
-  - Most-missed categories  
+  - Longest Streak
   This allows personalized progression and difficulty scaling over time.
 
 - **🧠 Intelligent Hint System:**  
@@ -48,4 +46,3 @@ Hint: p_______ _______
 
 You: forest fire
 ✅ Correct! The Polish word was **pożar lasu** 🌲🔥
-Your streak: 5 | Longest streak: 7
